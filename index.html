@@ -445,7 +445,7 @@
     return {topic,stake,A,B,R:rounds};
   }
 
-  const BACKEND = ""; // ← впиши URL Cloudflare-воркера, чтобы включить ЖИВОЙ ИИ; пусто = шаблонный движок
+  const BACKEND = "https://ai-arena-backend.panarin2005.workers.dev"; // ← ЖИВОЙ ИИ включён; "" вернёт шаблонный движок
 
   function setLoading(on){ const b=$('#fight'); b.disabled=on; b.textContent = on ? '⏳ бойцы сходятся…' : '⚔ Свести в ринге'; }
 
