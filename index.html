@@ -473,8 +473,13 @@
 
   $('#fight').addEventListener('click',()=>{ run(gather()); });
 
+  function inventTemplate(){
+    const A=rnd(FIGHTERS); let bid; do{ bid=rnd(FIGHTERS).id; }while(bid===A.id); const B=FIGHTERS.find(f=>f.id===bid);
+    last={topic:rnd(TOPICS), stake:rnd(STAKES), A, B, R:rounds};
+    render(buildFight(last.topic,last.stake,A,B,rounds));
+  }
   async function inventFight(){
-    if(!BACKEND){ toast('Живой ИИ выключен'); return; }
+    if(!BACKEND){ inventTemplate(); return; }
     setLoading(true);
     try{
       const res = await fetch(BACKEND,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({mode:'invent',rounds})});
@@ -486,7 +491,7 @@
       const sa=roundWins.filter(w=>w==='A').length, sb=roundWins.length-sa;
       last={topic:data.topic,stake:data.stake,A,B,R:rounds};
       render({topic:data.topic,stake:data.stake,A,B,R:rounds,rows,roundWins,sa,sb,winner:sa>=sb?'A':'B',reason:data.reason||''});
-    }catch(e){ toast('✨ причина: ' + (e && e.message ? e.message : String(e))); }
+    }catch(e){ toast('ИИ засмущался — собрал бой из библиотеки'); inventTemplate(); }
     finally{ setLoading(false); }
   }
   $('#invent').addEventListener('click', inventFight);
