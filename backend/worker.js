@@ -1,4 +1,4 @@
-// ai-arena — бэкенд на Cloudflare Worker.
+// ai-arena — бэкенд на Cloudflare Worker.  (авто-деплой из гита: Cloudflare Workers Builds ← push в main)
 // Держит твой ключ Anthropic (как секрет Cloudflare, НЕ в коде), зовёт Claude, отдаёт бой двух ИИ.
 // Ключ вставляешь ТЫ в настройках воркера (Secret ANTHROPIC_API_KEY) — в коде его нет.
 //
