@@ -1,6 +1,10 @@
 // ai-arena — бэкенд на Cloudflare Worker.
 // Держит твой ключ Anthropic (как секрет Cloudflare, НЕ в коде), зовёт Claude, отдаёт бой двух ИИ.
 // Ключ вставляешь ТЫ в настройках воркера (Secret ANTHROPIC_API_KEY) — в коде его нет.
+//
+// Два режима:
+//   обычный  — тема/ставка/бойцы приходят из витрины, Claude разыгрывает бой.
+//   invent   — body.mode === "invent": Claude САМ придумывает тему, ставку и двух бойцов, потом бой.
 
 const MODEL = "claude-opus-4-8";            // ← смени на "claude-haiku-4-5" для ~5× экономии (твои деньги, публичная витрина)
 const ALLOW_ORIGIN = "https://panarini.github.io"; // ← домен твоей витрины; "*" — разрешить всем
@@ -15,7 +19,6 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { headers: cors });
     if (request.method !== "POST") return json({ error: "POST only" }, 405, cors);
 
-    // Защита кошелька: не больше N боёв в минуту с одного IP (если биндинг заведён — см. wrangler.toml).
     if (env.RATE_LIMITER) {
       const ip = request.headers.get("cf-connecting-ip") || "anon";
       const { success } = await env.RATE_LIMITER.limit({ key: ip });
@@ -27,35 +30,47 @@ export default {
     try { body = await request.json(); } catch { return json({ error: "bad json" }, 400, cors); }
 
     const clamp = (s, n) => String(s ?? "").slice(0, n);
-    const topic  = clamp(body.topic, 200) || "тёмная тема против светлой";
-    const stake  = clamp(body.stake, 200) || "право на последнее слово";
-    const aName  = clamp(body.aName, 40)  || "Боец А";
-    const bName  = clamp(body.bName, 40)  || "Боец Б";
     const rounds = Math.max(2, Math.min(5, parseInt(body.rounds, 10) || 3));
+    const invent = body.mode === "invent";
 
-    // Строгая JSON-схема ответа — гарантирует форму, которую ждёт фронт.
-    const schema = {
+    const roundItem = {
       type: "object", additionalProperties: false,
-      properties: {
-        rounds: {
-          type: "array",
-          items: {
-            type: "object", additionalProperties: false,
-            properties: {
-              a:   { type: "string" },
-              b:   { type: "string" },
-              win: { type: "string", enum: ["A", "B"] },
-            },
-            required: ["a", "b", "win"],
-          },
-        },
-        reason: { type: "string" },
-      },
-      required: ["rounds", "reason"],
+      properties: { a: { type: "string" }, b: { type: "string" }, win: { type: "string", enum: ["A", "B"] } },
+      required: ["a", "b", "win"],
+    };
+    const fighter = {
+      type: "object", additionalProperties: false,
+      properties: { name: { type: "string" }, emoji: { type: "string" } },
+      required: ["name", "emoji"],
     };
 
-    const system = "Ты — режиссёр риторического поединка двух ИИ-персонажей. Пиши на русском, остроумно и дерзко, но без токсичности, без оскорблений по признакам и без мата. Каждая реплика — одна-две фразы, в характере бойца, с эскалацией и подколами оппонента. Это зрелище, а не настоящий спор: ярко, смешно, по делу.";
-    const user =
+    const dir = "Ты — режиссёр риторического поединка двух ИИ-персонажей. Пиши на русском, остроумно и дерзко, но без токсичности, без оскорблений по признакам и без мата. Каждая реплика — одна-две фразы, в характере бойца, с эскалацией и подколами оппонента. Это зрелище, а не настоящий спор: ярко, смешно, по делу.";
+
+    let schema, user;
+    if (invent) {
+      user =
+`Придумай яркий НЕОЖИДАННЫЙ поединок и разыграй его сам.
+Сам выбери: тему схватки (забавную и спорную, годную для словесной дуэли), ставку (за что бьются),
+и двух КОНТРАСТНЫХ бойцов-персонажей — каждому короткое имя (1–2 слова) и один эмодзи.
+Раундов: ${rounds}. В каждом раунде "a" — реплика первого бойца, "b" — ответ второго, "win" — кто выиграл раунд ("A"/"B").
+Последний раунд — добивающие реплики. "reason" — фраза-вердикт судьи со ссылкой на тему или ставку.
+Верни строго JSON по схеме.`;
+      schema = {
+        type: "object", additionalProperties: false,
+        properties: {
+          topic: { type: "string" }, stake: { type: "string" },
+          a: fighter, b: fighter,
+          rounds: { type: "array", items: roundItem },
+          reason: { type: "string" },
+        },
+        required: ["topic", "stake", "a", "b", "rounds", "reason"],
+      };
+    } else {
+      const topic = clamp(body.topic, 200) || "тёмная тема против светлой";
+      const stake = clamp(body.stake, 200) || "право на последнее слово";
+      const aName = clamp(body.aName, 40) || "Боец А";
+      const bName = clamp(body.bName, 40) || "Боец Б";
+      user =
 `Тема схватки: «${topic}»
 Ставка (за что бьются): «${stake}»
 Красный угол: ${aName}
@@ -63,11 +78,17 @@ export default {
 Раундов: ${rounds}
 
 Разыграй бой: в каждом раунде ${aName} говорит реплику (поле "a"), затем ${bName} отвечает (поле "b"). Поле "win" — кто выиграл раунд по мнению судьи ("A" или "B"). Последний раунд — финишные добивающие реплики. В конце "reason" — одна фраза-вердикт судьи, ссылающаяся на тему или ставку. Верни строго JSON по схеме.`;
+      schema = {
+        type: "object", additionalProperties: false,
+        properties: { rounds: { type: "array", items: roundItem }, reason: { type: "string" } },
+        required: ["rounds", "reason"],
+      };
+    }
 
     const payload = {
       model: MODEL,
       max_tokens: 2000,
-      system,
+      system: dir,
       messages: [{ role: "user", content: user }],
       output_config: { format: { type: "json_schema", schema } },
     };

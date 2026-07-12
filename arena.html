@@ -202,6 +202,7 @@
         </div>
       </div>
       <div class="grow"></div>
+      <button class="ghost" id="invent">✨ ИИ придумает бой</button>
       <button class="btn" id="fight">⚔ Свести в ринге</button>
     </div>
   </section>
@@ -440,7 +441,7 @@
 
   const BACKEND = "https://ai-arena-backend.panarin2005.workers.dev"; // ← ЖИВОЙ ИИ включён; "" вернёт шаблонный движок
 
-  function setLoading(on){ const b=$('#fight'); b.disabled=on; b.textContent = on ? '⏳ бойцы сходятся…' : '⚔ Свести в ринге'; }
+  function setLoading(on){ const b=$('#fight'); b.disabled=on; b.textContent = on ? '⏳ бойцы сходятся…' : '⚔ Свести в ринге'; const iv=$('#invent'); if(iv) iv.disabled=on; }
 
   async function fetchFight(p){
     const res = await fetch(BACKEND, {method:'POST', headers:{'content-type':'application/json'},
@@ -464,6 +465,24 @@
   }
 
   $('#fight').addEventListener('click',()=>{ run(gather()); });
+
+  async function inventFight(){
+    if(!BACKEND){ toast('Живой ИИ выключен'); return; }
+    setLoading(true);
+    try{
+      const res = await fetch(BACKEND,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({mode:'invent',rounds})});
+      const data = await res.json();
+      if(!res.ok || data.error) throw new Error(data.error || ('HTTP '+res.status));
+      const A={name:data.a.name,emoji:data.a.emoji}, B={name:data.b.name,emoji:data.b.emoji};
+      const rows=data.rounds.map(r=>[{side:'left',name:A.name,text:r.a},{side:'right',name:B.name,text:r.b}]);
+      const roundWins=data.rounds.map(r=> r.win==='B'?'B':'A');
+      const sa=roundWins.filter(w=>w==='A').length, sb=roundWins.length-sa;
+      last={topic:data.topic,stake:data.stake,A,B,R:rounds};
+      render({topic:data.topic,stake:data.stake,A,B,R:rounds,rows,roundWins,sa,sb,winner:sa>=sb?'A':'B',reason:data.reason||''});
+    }catch(e){ toast('Не получилось придумать — попробуй ещё'); }
+    finally{ setLoading(false); }
+  }
+  $('#invent').addEventListener('click', inventFight);
   $('#again').addEventListener('click',()=>{ if(last) run(last); }); // same matchup, fresh fight
   $('#rematch').addEventListener('click',()=>{
     fa.value=rnd(FIGHTERS).id; let b; do{b=rnd(FIGHTERS).id;}while(b===fa.value); fb.value=b;
