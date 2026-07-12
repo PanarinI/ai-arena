@@ -438,7 +438,30 @@
     return {topic,stake,A,B,R:rounds};
   }
 
-  function run(params){ last=params; render(buildFight(params.topic,params.stake,params.A,params.B,params.R)); }
+  const BACKEND = ""; // ← впиши URL Cloudflare-воркера, чтобы включить ЖИВОЙ ИИ; пусто = шаблонный движок
+
+  function setLoading(on){ const b=$('#fight'); b.disabled=on; b.textContent = on ? '⏳ бойцы сходятся…' : '⚔ Свести в ринге'; }
+
+  async function fetchFight(p){
+    const res = await fetch(BACKEND, {method:'POST', headers:{'content-type':'application/json'},
+      body: JSON.stringify({topic:p.topic, stake:p.stake, aName:p.A.name, bName:p.B.name, rounds:p.R})});
+    const data = await res.json();
+    if(!res.ok || data.error) throw new Error(data.error || ('HTTP '+res.status));
+    const rows = data.rounds.map(r=>[{side:'left',name:p.A.name,text:r.a},{side:'right',name:p.B.name,text:r.b}]);
+    const roundWins = data.rounds.map(r=> r.win==='B'?'B':'A');
+    const sa = roundWins.filter(w=>w==='A').length, sb = roundWins.length - sa;
+    const winner = sa>=sb ? 'A':'B';
+    return {topic:p.topic, stake:p.stake, A:p.A, B:p.B, R:p.R, rows, roundWins, sa, sb, winner, reason:data.reason||''};
+  }
+
+  async function run(params){
+    last=params;
+    if(!BACKEND){ render(buildFight(params.topic,params.stake,params.A,params.B,params.R)); return; }
+    setLoading(true);
+    try{ render(await fetchFight(params)); }
+    catch(e){ toast('Сервер занят — показываю шаблонный бой'); render(buildFight(params.topic,params.stake,params.A,params.B,params.R)); }
+    finally{ setLoading(false); }
+  }
 
   $('#fight').addEventListener('click',()=>{ run(gather()); });
   $('#again').addEventListener('click',()=>{ if(last) run(last); }); // same matchup, fresh fight
@@ -474,5 +497,7 @@
   }
   let tt;
   function toast(m){ const el=$('#toast'); el.textContent=m; el.classList.add('show'); clearTimeout(tt); tt=setTimeout(()=>el.classList.remove('show'),2600); }
+
+  if(BACKEND){ const f=document.querySelector('.foot'); if(f) f.innerHTML='<b>Живой ИИ по углам.</b> Реплики генерит Claude в реальном времени. Проект: <b>ai-arena</b> в Саду.'; }
 })();
 </script>
