@@ -2,15 +2,10 @@ name = "ai-arena-backend"
 main = "worker.js"
 compatibility_date = "2025-11-01"
 
-# Лимит на кошелёк: не больше 12 боёв в минуту с одного IP.
-# Cloudflare Rate Limiting (open beta). Если при деплое ругается — просто удали этот блок,
-# воркер работает и без него (в коде стоит проверка `if (env.RATE_LIMITER)`).
-[[unsafe.bindings]]
-name = "RATE_LIMITER"
-type = "ratelimit"
-namespace_id = "2001"
-simple = { limit = 12, period = 60 }
-
-# Секрет НЕ здесь. Ключ добавляешь отдельно:
-#   wrangler secret put ANTHROPIC_API_KEY
-# (или в дашборде: Worker → Settings → Variables and Secrets → Add → Encrypt)
+# Секрет ANTHROPIC_API_KEY хранится НА воркере (Cloudflare), не в коде и не в гите —
+# при авто-деплое из гита он остаётся на месте (деплой кода секретов не трогает).
+#
+# Защита кошелька на публичной странице:
+#   • жёсткие потолки в worker.js (раундов ≤ 5, короткий ответ) — потолок цены одного вызова;
+#   • ГЛАВНОЕ — месячный лимит трат в console.anthropic.com.
+# (Пер-IP лимит вернём позже отдельным слоем — сейчас держим конфиг простым ради чистого авто-деплоя.)
