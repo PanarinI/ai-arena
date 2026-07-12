@@ -486,7 +486,7 @@
       const sa=roundWins.filter(w=>w==='A').length, sb=roundWins.length-sa;
       last={topic:data.topic,stake:data.stake,A,B,R:rounds};
       render({topic:data.topic,stake:data.stake,A,B,R:rounds,rows,roundWins,sa,sb,winner:sa>=sb?'A':'B',reason:data.reason||''});
-    }catch(e){ toast('Не получилось придумать — попробуй ещё'); }
+    }catch(e){ toast('✨ причина: ' + (e && e.message ? e.message : String(e))); }
     finally{ setLoading(false); }
   }
   $('#invent').addEventListener('click', inventFight);
