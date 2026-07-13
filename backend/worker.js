@@ -7,6 +7,7 @@
 //   invent   — body.mode === "invent": Claude САМ придумывает тему, ставку и двух бойцов, потом бой.
 
 const MODEL = "claude-opus-4-8";            // ← смени на "claude-haiku-4-5" для ~5× экономии (твои деньги, публичная витрина)
+const MODEL_CORE = "claude-haiku-4-5";      // ← ядро-песочница (core.html): много ходов за прогон, потому дешёвая быстрая модель по умолчанию
 const ALLOW_ORIGIN = "https://panarini.github.io"; // ← домен твоей витрины; "*" — разрешить всем
 
 export default {
@@ -28,6 +29,9 @@ export default {
 
     let body;
     try { body = await request.json(); } catch { return json({ error: "bad json" }, 400, cors); }
+
+    // Голое ядро (песочница движка двоих): один вызов = один ход одного агента. Изолировано от арены.
+    if (body.mode === "core") return handleCore(body, env, cors);
 
     const clamp = (s, n) => String(s ?? "").slice(0, n);
     const rounds = Math.max(2, Math.min(5, parseInt(body.rounds, 10) || 3));
@@ -125,6 +129,64 @@ export default {
     return json(fight, 200, cors);
   },
 };
+
+// ── Голое ядро: сгенерировать ОДИН ход одного агента. ──────────────────────────
+// Ключевое свойство «разведённых воль»: агенту кладём только ЕГО тайное + общую
+// сцену + публичную историю реплик. Тайное другого в его контекст не попадает.
+async function handleCore(body, env, cors) {
+  const clamp = (s, n) => String(s ?? "").slice(0, n);
+  const a = body.a || {}, b = body.b || {};
+  const me = body.turn === "B" ? "B" : "A";
+  const meObj = me === "A" ? a : b;
+  const shared = clamp(body.shared, 600);
+  const name = clamp(meObj.name, 30) || me;
+  const secret = clamp(meObj.secret, 400);
+  const aName = clamp(a.name, 30) || "A";
+  const bName = clamp(b.name, 30) || "B";
+  const hist = Array.isArray(body.history) ? body.history.slice(-24) : [];
+
+  const sys =
+    `Ты — ${name}, живой участник сцены (не рассказчик). Общая сцена, её видят оба: ${shared || "(не задана)"}.` +
+    (secret ? ` Только тебе известно (можешь не раскрывать напрямую): ${secret}.` : "") +
+    ` Сейчас ТВОЙ ход. Ответь одной репликой или действием от первого лица — коротко (1–2 фразы), в моменте, живо. ` +
+    `Без своего имени в начале, без кавычек и пояснений за кадром, сцену не пересказывай.`;
+
+  let convo;
+  if (!hist.length) {
+    convo = `Разговор ещё не начинался. Сделай первый ход, ${name}.`;
+  } else {
+    const lines = hist.map((h) => `${h.who === "B" ? bName : aName}: ${clamp(h.text, 500)}`).join("\n");
+    convo = `Что уже было сказано:\n${lines}\n\nТеперь твой ход, ${name}.`;
+  }
+
+  let r;
+  try {
+    r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({ model: MODEL_CORE, max_tokens: 220, system: sys, messages: [{ role: "user", content: convo }] }),
+    });
+  } catch {
+    return json({ error: "Не достучался до Claude." }, 502, cors);
+  }
+  if (!r.ok) {
+    const detail = (await r.text()).slice(0, 300);
+    return json({ error: "Claude вернул ошибку", status: r.status, detail }, 502, cors);
+  }
+  const data = await r.json();
+  if (data.stop_reason === "refusal")
+    return json({ error: "Модель отказалась от этого хода — измени сцену." }, 200, cors);
+
+  let text = ((data.content || []).find((x) => x.type === "text")?.text || "").trim();
+  const px = new RegExp("^" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*[:—-]\\s*", "i");
+  text = text.replace(px, "").trim();
+
+  return json({ who: me, name, text }, 200, cors);
+}
 
 function json(obj, status, cors) {
   return new Response(JSON.stringify(obj), {
